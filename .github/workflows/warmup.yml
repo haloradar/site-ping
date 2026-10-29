@@ -2,12 +2,17 @@ name: Site warmup
 
 on:
   schedule:
-    # ~5 irregular UTC windows/day; in-job jitter 0–60m. One window lands ≥22 Asia/Shanghai for daily floor.
-    - cron: '17 2 * * *'
-    - cron: '41 7 * * *'
-    - cron: '8 13 * * *'
-    - cron: '29 14 * * *'
-    - cron: '53 18 * * *'
+    # ~every 2–3h UTC, irregular minutes; each window has its own sleep range (see shell).
+    # 14:11 UTC ≈ 22:11 Asia/Shanghai — daily-floor window.
+    - cron: '17 1 * * *'
+    - cron: '41 4 * * *'
+    - cron: '8 7 * * *'
+    - cron: '53 10 * * *'
+    - cron: '29 13 * * *'
+    - cron: '11 14 * * *'
+    - cron: '37 17 * * *'
+    - cron: '3 20 * * *'
+    - cron: '47 22 * * *'
   workflow_dispatch:
 
 permissions:
@@ -20,7 +25,7 @@ concurrency:
 jobs:
   warmup:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 130
     steps:
       - name: Shanghai day key
         id: day
@@ -45,19 +50,34 @@ jobs:
           set +e
           TODAY=$(date +%F)
           HOUR=$(date +%-H)
+          UTC_HOUR=$(date -u +%-H)
           MARKER=".warmup-ok"
           HAD_OK=0
           if [ -f "$MARKER" ] && grep -qx "$TODAY" "$MARKER" 2>/dev/null; then
             HAD_OK=1
           fi
-          echo "today=$TODAY hour=$HOUR had_ok=$HAD_OK"
+          echo "today=$TODAY shanghai_hour=$HOUR utc_hour=$UTC_HOUR had_ok=$HAD_OK"
 
           if [ "$HAD_OK" -eq 0 ] && [ "$HOUR" -ge 22 ]; then
             DELAY_MIN=0
             echo "Daily floor: forcing immediate run (no success yet today)"
           else
-            DELAY_MIN=$((RANDOM % 61))
-            echo "Jitter sleep: ${DELAY_MIN} minutes"
+            # Distinct non-uniform sleep ranges per UTC trigger hour (minutes inclusive).
+            case "$UTC_HOUR" in
+              1)  LO=0;   HI=110 ;;  # cron 17 1
+              4)  LO=20;  HI=100 ;;  # cron 41 4
+              7)  LO=5;   HI=95  ;;  # cron 8 7
+              10) LO=15;  HI=105 ;;  # cron 53 10
+              13) LO=0;   HI=80  ;;  # cron 29 13
+              14) LO=0;   HI=50  ;;  # cron 11 14 (near Shanghai 22h)
+              17) LO=10;  HI=90  ;;  # cron 37 17
+              20) LO=25;  HI=115 ;;  # cron 3 20
+              22) LO=0;   HI=120 ;;  # cron 47 22
+              *)  LO=0;   HI=90  ;;  # workflow_dispatch / drift
+            esac
+            SPAN=$((HI - LO + 1))
+            DELAY_MIN=$((LO + RANDOM % SPAN))
+            echo "Jitter window utc_hour=$UTC_HOUR range=${LO}-${HI}m -> sleep ${DELAY_MIN}m"
           fi
           sleep $((DELAY_MIN * 60))
 
