@@ -2,8 +2,12 @@ name: Site warmup
 
 on:
   schedule:
-    # Hourly UTC; in-job jitter. Daily floor keyed to Asia/Shanghai calendar day.
-    - cron: '7 * * * *'
+    # ~5 irregular UTC windows/day; in-job jitter 0–60m. One window lands ≥22 Asia/Shanghai for daily floor.
+    - cron: '17 2 * * *'
+    - cron: '41 7 * * *'
+    - cron: '8 13 * * *'
+    - cron: '29 14 * * *'
+    - cron: '53 18 * * *'
   workflow_dispatch:
 
 permissions:
@@ -52,7 +56,7 @@ jobs:
             DELAY_MIN=0
             echo "Daily floor: forcing immediate run (no success yet today)"
           else
-            DELAY_MIN=$((RANDOM % 51))
+            DELAY_MIN=$((RANDOM % 61))
             echo "Jitter sleep: ${DELAY_MIN} minutes"
           fi
           sleep $((DELAY_MIN * 60))
