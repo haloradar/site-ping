@@ -2,7 +2,7 @@ name: Site warmup
 
 on:
   schedule:
-    # Hourly UTC; actual curl jittered by random sleep below
+    # Hourly UTC; in-job jitter. Daily floor keyed to Asia/Shanghai calendar day.
     - cron: '7 * * * *'
   workflow_dispatch:
 
@@ -11,20 +11,50 @@ permissions:
 
 concurrency:
   group: site-warmup
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   warmup:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
-      - name: Warm davylei.com
+      - name: Shanghai day key
+        id: day
         shell: bash
+        env:
+          TZ: Asia/Shanghai
+        run: echo "key=$(date +%F)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore today success marker
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: .warmup-ok
+          key: warmup-ok-${{ steps.day.outputs.key }}
+
+      - name: Warm davylei.com
+        id: warm
+        shell: bash
+        env:
+          TZ: Asia/Shanghai
         run: |
           set +e
-          # Randomize within the hour: sleep 0–50 minutes before curling
-          DELAY_MIN=$((RANDOM % 51))
-          echo "Jitter sleep: ${DELAY_MIN} minutes"
+          TODAY=$(date +%F)
+          HOUR=$(date +%-H)
+          MARKER=".warmup-ok"
+          HAD_OK=0
+          if [ -f "$MARKER" ] && grep -qx "$TODAY" "$MARKER" 2>/dev/null; then
+            HAD_OK=1
+          fi
+          echo "today=$TODAY hour=$HOUR had_ok=$HAD_OK"
+
+          if [ "$HAD_OK" -eq 0 ] && [ "$HOUR" -ge 22 ]; then
+            DELAY_MIN=0
+            echo "Daily floor: forcing immediate run (no success yet today)"
+          else
+            DELAY_MIN=$((RANDOM % 51))
+            echo "Jitter sleep: ${DELAY_MIN} minutes"
+          fi
           sleep $((DELAY_MIN * 60))
 
           BASE='https://davylei.com'
@@ -52,6 +82,7 @@ jobs:
           LANGS=('zh-CN,zh;q=0.9,en;q=0.8' 'en-US,en;q=0.9' 'zh-CN,zh;q=0.8,en-US;q=0.6,en;q=0.4' 'en-GB,en;q=0.9')
 
           fail=0
+          home_ok=0
           for url in "${URLS[@]}"; do
             ua="${UAS[$RANDOM % ${#UAS[@]}]}"
             al="${LANGS[$RANDOM % ${#LANGS[@]}]}"
@@ -70,6 +101,7 @@ jobs:
               echo "GET $url -> $code (attempt $attempt)"
               if [[ "$code" =~ ^2 ]]; then
                 ok=1
+                [ "$url" = "${BASE}/" ] && home_ok=1
                 break
               fi
               attempt=$((attempt + 1))
@@ -78,5 +110,20 @@ jobs:
             [ "$ok" -eq 1 ] || fail=$((fail + 1))
           done
 
-          echo "Done. soft_failures=$fail"
+          if [ "$home_ok" -eq 1 ]; then
+            echo "$TODAY" > "$MARKER"
+            echo "wrote_marker=true" >> "$GITHUB_OUTPUT"
+            echo "Recorded success marker for $TODAY"
+          else
+            echo "wrote_marker=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "Done. soft_failures=$fail home_ok=$home_ok"
           exit 0
+
+      - name: Persist today success marker
+        if: steps.warm.outputs.wrote_marker == 'true' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .warmup-ok
+          key: warmup-ok-${{ steps.day.outputs.key }}
