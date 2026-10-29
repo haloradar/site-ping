@@ -2,26 +2,31 @@ name: Site warmup
 
 on:
   schedule:
-    # Irregular 4–8h-ish windows (UTC); several crons to avoid a fixed cadence
-    - cron: '17 2 * * *'
-    - cron: '41 7 * * *'
-    - cron: '8 13 * * *'
-    - cron: '53 18 * * *'
-    - cron: '29 22 * * *'
+    # Hourly UTC; actual curl jittered by random sleep below
+    - cron: '7 * * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: site-warmup
+  cancel-in-progress: true
+
 jobs:
   warmup:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 75
     steps:
       - name: Warm davylei.com
         shell: bash
         run: |
           set +e
+          # Randomize within the hour: sleep 0–50 minutes before curling
+          DELAY_MIN=$((RANDOM % 51))
+          echo "Jitter sleep: ${DELAY_MIN} minutes"
+          sleep $((DELAY_MIN * 60))
+
           BASE='https://davylei.com'
           URLS=(
             "${BASE}/"
