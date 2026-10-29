@@ -1,0 +1,77 @@
+name: Site warmup
+
+on:
+  schedule:
+    # Irregular 4–8h-ish windows (UTC); several crons to avoid a fixed cadence
+    - cron: '17 2 * * *'
+    - cron: '41 7 * * *'
+    - cron: '8 13 * * *'
+    - cron: '53 18 * * *'
+    - cron: '29 22 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  warmup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Warm davylei.com
+        shell: bash
+        run: |
+          set +e
+          BASE='https://davylei.com'
+          URLS=(
+            "${BASE}/"
+            "${BASE}/#papers"
+            "${BASE}/#projects"
+            "${BASE}/#skills"
+            "${BASE}/about.html"
+            "${BASE}/atom.xml"
+            "${BASE}/css/style.css?v=20261030video"
+            "${BASE}/favicon.svg"
+            "${BASE}/media/hero-poster.jpg"
+            "${BASE}/media/demo-poster.jpg"
+            "${BASE}/media/hero.mp4"
+            "${BASE}/media/demo.mp4"
+          )
+          UAS=(
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15'
+            'Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0'
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0'
+          )
+          LANGS=('zh-CN,zh;q=0.9,en;q=0.8' 'en-US,en;q=0.9' 'zh-CN,zh;q=0.8,en-US;q=0.6,en;q=0.4' 'en-GB,en;q=0.9')
+
+          fail=0
+          for url in "${URLS[@]}"; do
+            ua="${UAS[$RANDOM % ${#UAS[@]}]}"
+            al="${LANGS[$RANDOM % ${#LANGS[@]}]}"
+            sleep $((2 + RANDOM % 9))
+
+            attempt=0
+            ok=0
+            while [ "$attempt" -le 1 ]; do
+              code=$(curl -sS -o /dev/null -w '%{http_code}' \
+                -L --max-time 30 \
+                -A "$ua" \
+                -H "Referer: ${BASE}/" \
+                -H "Accept-Language: $al" \
+                -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8' \
+                "$url" || echo '000')
+              echo "GET $url -> $code (attempt $attempt)"
+              if [[ "$code" =~ ^2 ]]; then
+                ok=1
+                break
+              fi
+              attempt=$((attempt + 1))
+              [ "$attempt" -le 1 ] && sleep $((2 + RANDOM % 5))
+            done
+            [ "$ok" -eq 1 ] || fail=$((fail + 1))
+          done
+
+          echo "Done. soft_failures=$fail"
+          exit 0
